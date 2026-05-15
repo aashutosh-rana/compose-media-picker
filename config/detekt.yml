@@ -1,0 +1,35 @@
+build:
+  maxIssues: 0
+  excludeCorrectable: false
+
+config:
+  validation: true
+  warningsAsErrors: true
+
+complexity:
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 8
+
+style:
+  MagicNumber:
+    ignoreEnums: true
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+  MaxLineLength:
+    maxLineLength: 140
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'kotlinx.cinterop.*'
+      - 'platform.UIKit.*'
+      - 'platform.Foundation.*'
+      - 'platform.PhotosUI.*'
+
+naming:
+  TopLevelPropertyNaming:
+    constantPattern: '[A-Z][_A-Z0-9]*|[A-Za-z][_A-Za-z0-9]*'
+
+empty-blocks:
+  EmptyFunctionBlock:
+    active: false

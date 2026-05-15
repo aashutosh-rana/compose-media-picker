@@ -1,0 +1,40 @@
+name: Publish snapshot
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: publish-snapshot
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify version is a SNAPSHOT
+        # Main is expected to always carry a -SNAPSHOT version; bail loudly if a release
+        # version slipped in (which Sonatype's snapshot endpoint would reject anyway).
+        run: |
+          version=$(awk -F= '/^VERSION_NAME=/{print $2}' gradle.properties | tr -d '[:space:]')
+          echo "Detected VERSION_NAME=$version"
+          case "$version" in
+            *-SNAPSHOT) ;;
+            *) echo "::error::VERSION_NAME ($version) is not a -SNAPSHOT — refusing to publish to snapshot repo."; exit 1 ;;
+          esac
+
+      - name: Publish snapshot to Sonatype
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.OSSRH_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.OSSRH_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+        # --no-configuration-cache because Dokka's JavadocJar task isn't config-cache safe.
+        run: ./gradlew :media-picker:publishAllPublicationsToMavenCentralRepository --no-configuration-cache

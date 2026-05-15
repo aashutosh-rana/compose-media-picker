@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Captures land in <app cache>/media_picker/ and are cleaned on dispose. -->
+    <cache-path name="media_picker_cache" path="media_picker/" />
+</paths>

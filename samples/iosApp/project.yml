@@ -1,0 +1,54 @@
+# xcodegen specification for the iOS sample app.
+#
+# Regenerate the .xcodeproj with:
+#   brew install xcodegen   # one-time
+#   cd samples/iosApp
+#   xcodegen
+#
+# The resulting iosApp.xcodeproj is what you open in Xcode. It is intentionally NOT
+# committed to git — let xcodegen produce a fresh one so we don't carry Xcode's
+# version-specific churn in the repo.
+
+name: iosApp
+options:
+  bundleIdPrefix: io.github.aashutosh.mediapicker
+  deploymentTarget:
+    iOS: "15.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ENABLE_PREVIEWS: YES
+    # The framework is materialized into a build-target-specific directory by the
+    # embedAndSignAppleFrameworkForXcode Gradle task (declared below as a pre-build run script).
+    FRAMEWORK_SEARCH_PATHS:
+      - $(SRCROOT)/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    info:
+      path: iosApp/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.aashutosh.mediapicker.sample
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: iosApp/Info.plist
+    preBuildScripts:
+      - name: Compile Kotlin Framework
+        script: |
+          cd "$SRCROOT/../.."
+          ./gradlew :samples:composeApp:embedAndSignAppleFrameworkForXcode
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)/ComposeApp.framework/ComposeApp
+    dependencies:
+      - framework: build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)/ComposeApp.framework
+        embed: true
+        codeSign: true

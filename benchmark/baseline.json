@@ -1,0 +1,5 @@
+{
+    "_comment": "Baseline numbers captured on the project's primary CI runner. Update after a confirmed perf improvement. Regression > 20% fails CI.",
+    "compress_4k_to_1080p_ms": 181.0,
+    "thumbnail_256px_ms": 161.0
+}
