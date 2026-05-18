@@ -10,21 +10,13 @@
 package io.github.aashutosh.mediapicker.sample
 
 import androidx.compose.ui.window.ComposeUIViewController
-import io.github.aashutosh.mediapicker.IosPlatformContext
-import io.github.aashutosh.mediapicker.initializeMediaPicker
 import platform.UIKit.UIViewController
 
 /**
  * Entry point consumed by the Xcode `iosApp` target. Returns a `UIViewController` that
- * hosts the shared Compose UI. The Swift side wraps this in a `UIViewControllerRepresentable`.
- *
- * The view controller itself is passed to [initializeMediaPicker] so the media-picker
- * library can present `PHPickerViewController` / `UIDocumentPickerViewController` /
- * `UIImagePickerController` modally on top of it.
+ * hosts the shared Compose UI. The library auto-discovers this controller as the
+ * presentation host on the first picker call — no Swift-side or Kotlin-side
+ * initialization required.
  */
 @Suppress("FunctionName", "unused")
-fun MainViewController(): UIViewController {
-    val controller = ComposeUIViewController { App() }
-    initializeMediaPicker(IosPlatformContext(controller))
-    return controller
-}
+fun MainViewController(): UIViewController = ComposeUIViewController { App() }

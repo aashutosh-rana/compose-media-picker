@@ -11,12 +11,9 @@ package io.github.aashutosh.mediapicker.sample
 
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.CanvasBasedWindow
-import io.github.aashutosh.mediapicker.WebPlatformContext
-import io.github.aashutosh.mediapicker.initializeMediaPicker
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
-    initializeMediaPicker(WebPlatformContext())
     CanvasBasedWindow(canvasElementId = "ComposeTarget", title = "Media Picker Sample") {
         App()
     }

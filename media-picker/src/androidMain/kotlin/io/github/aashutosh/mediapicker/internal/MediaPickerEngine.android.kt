@@ -24,17 +24,15 @@ import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVis
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.VisualMediaType
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
-import io.github.aashutosh.mediapicker.AndroidPlatformContext
 import io.github.aashutosh.mediapicker.CameraCaptureConfig
 import io.github.aashutosh.mediapicker.FilePickerConfig
 import io.github.aashutosh.mediapicker.ImagePickerConfig
-import io.github.aashutosh.mediapicker.InternalMediaPickerApi
 import io.github.aashutosh.mediapicker.MediaFile
 import io.github.aashutosh.mediapicker.MediaPickerResult
 import io.github.aashutosh.mediapicker.MultiImagePickerConfig
-import io.github.aashutosh.mediapicker.PlatformContext
 import io.github.aashutosh.mediapicker.VideoCaptureConfig
 import io.github.aashutosh.mediapicker.VideoPickerConfig
+import io.github.aashutosh.mediapicker.internal.image.postProcessImage
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
@@ -47,40 +45,40 @@ import kotlin.coroutines.resume
  * unregisters in `invokeOnCancellation` so dispose / coroutine cancellation cleans up
  * deterministically.
  *
- * No `Context`, `Activity`, or `Uri` is held across composition — the engine grabs the
- * activity weakly from [AndroidPlatformContext] on each call.
+ * No `Context`, `Activity`, or `Uri` is held outside the engine's own composition-scoped
+ * lifetime — the auto-discovery in `rememberMediaPicker()` re-keys the engine if the
+ * hosting `ComponentActivity` ever changes.
  */
-@OptIn(InternalMediaPickerApi::class)
-public actual class MediaPickerEngine public actual constructor(context: PlatformContext) {
+internal actual class MediaPickerEngine actual constructor(context: InternalPlatformContext) {
 
-    private val androidCtx = context as? AndroidPlatformContext
-        ?: error("Android target requires AndroidPlatformContext, got ${context::class.simpleName}")
+    private val androidCtx = context as AndroidPlatformContext
     private val keyCounter = AtomicInteger(0)
     private val tempFiles = TempFileRegistry(androidCtx.activity.applicationContext)
 
-    public actual fun attach() {
+    actual fun attach() {
         tempFiles.sweepStaleSync()
     }
 
-    public actual fun detach() {
+    actual fun detach() {
         tempFiles.cleanup()
     }
 
-    public actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> =
-        pickVisual(PickVisualMedia.ImageOnly)?.let { uri ->
-            MediaPickerResult.Success(toMediaFile(uri))
-        } ?: MediaPickerResult.Cancelled
-
-    public actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
-        val uris = pickMultipleVisual(PickVisualMedia.ImageOnly, config.maxItems)
-        return when {
-            uris == null -> MediaPickerResult.Cancelled
-            uris.isEmpty() -> MediaPickerResult.Cancelled
-            else -> MediaPickerResult.Success(uris.map { toMediaFile(it) })
-        }
+    actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> {
+        val uri = pickVisual(PickVisualMedia.ImageOnly) ?: return MediaPickerResult.Cancelled
+        val processed = toMediaFile(uri).postProcessImage(config.compression, config.applyExifRotation)
+        return MediaPickerResult.Success(processed)
     }
 
-    public actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
+        val uris = pickMultipleVisual(PickVisualMedia.ImageOnly, config.maxItems)
+        if (uris.isNullOrEmpty()) return MediaPickerResult.Cancelled
+        val processed = uris.map {
+            toMediaFile(it).postProcessImage(config.compression, config.applyExifRotation)
+        }
+        return MediaPickerResult.Success(processed)
+    }
+
+    actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
         val uri = pickVisual(PickVisualMedia.VideoOnly) ?: return MediaPickerResult.Cancelled
         val file = toMediaFile(uri)
         if (config.maxSizeBytes != null && file.sizeBytes > config.maxSizeBytes) {
@@ -89,7 +87,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(file)
     }
 
-    public actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
         val mimes = config.mimeTypes.toTypedArray()
         return if (config.allowMultiple) {
             val uris = launchActivityResult<Array<String>, List<Uri>>(OpenMultipleDocuments(), mimes)
@@ -108,7 +106,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         }
     }
 
-    public actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> {
         val (file, uri) = tempFiles.newCaptureFile("jpg")
         val ok = launchActivityResult<Uri, Boolean>(TakePicture(), uri) ?: false
         if (!ok || file.length() == 0L) {
@@ -121,7 +119,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(toMediaFile(uri, mimeOverride = "image/jpeg"))
     }
 
-    public actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> {
         val (file, uri) = tempFiles.newCaptureFile("mp4")
         val ok = launchActivityResult<Uri, Boolean>(CaptureVideo(), uri) ?: false
         if (!ok || file.length() == 0L) {
@@ -142,6 +140,13 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
     )
 
     private suspend fun pickMultipleVisual(type: VisualMediaType, max: Int): List<Uri>? {
+        // PickMultipleVisualMedia's constructor requires maxItems > 1 — it throws
+        // IllegalArgumentException("Max items must be higher than 1") otherwise. When the
+        // caller wants exactly one item, fall back to the single-pick contract.
+        if (max <= 1) {
+            val uri = pickVisual(type) ?: return null
+            return listOf(uri)
+        }
         val req = PickVisualMediaRequest.Builder().setMediaType(type).build()
         return launchActivityResult<PickVisualMediaRequest, List<Uri>>(
             PickMultipleVisualMedia(max),

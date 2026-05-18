@@ -25,7 +25,6 @@ import kotlinx.coroutines.CancellationException
  * [runCatching] so consumers never see an uncaught platform exception, while still
  * letting structured-concurrency cancellation propagate.
  */
-@OptIn(io.github.aashutosh.mediapicker.InternalMediaPickerApi::class)
 internal class DefaultMediaPicker(
     private val engine: MediaPickerEngine,
 ) : MediaPicker {

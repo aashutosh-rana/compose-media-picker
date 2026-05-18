@@ -11,12 +11,9 @@ package io.github.aashutosh.mediapicker.sample
 
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import io.github.aashutosh.mediapicker.DesktopPlatformContext
-import io.github.aashutosh.mediapicker.initializeMediaPicker
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "Media Picker Sample") {
-        initializeMediaPicker(DesktopPlatformContext(parent = window))
         App()
     }
 }

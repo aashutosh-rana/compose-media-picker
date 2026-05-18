@@ -12,39 +12,33 @@ package io.github.aashutosh.mediapicker.internal
 import io.github.aashutosh.mediapicker.CameraCaptureConfig
 import io.github.aashutosh.mediapicker.FilePickerConfig
 import io.github.aashutosh.mediapicker.ImagePickerConfig
-import io.github.aashutosh.mediapicker.InternalMediaPickerApi
 import io.github.aashutosh.mediapicker.MediaFile
 import io.github.aashutosh.mediapicker.MediaPickerResult
 import io.github.aashutosh.mediapicker.MultiImagePickerConfig
-import io.github.aashutosh.mediapicker.PlatformContext
 import io.github.aashutosh.mediapicker.VideoCaptureConfig
 import io.github.aashutosh.mediapicker.VideoPickerConfig
 
 /**
- * Platform-specific implementation surface. This is the ONLY `expect class` in the
- * library — every public type is a pure-Kotlin interface or data class.
- *
- * Implementations live in `*Main` source sets and are responsible for:
- * - registering platform launchers / delegates on [attach]
- * - tearing them down (and cancelling pending continuations) on [detach]
- * - mapping every platform success / cancel / failure into a [MediaPickerResult]
+ * Platform-specific implementation surface. Internal because the only consumer is
+ * [DefaultMediaPicker] — there's no public picker setup API in 0.2.x, and a consumer
+ * faking the engine should fake the public [io.github.aashutosh.mediapicker.MediaPicker]
+ * interface instead.
  */
-@InternalMediaPickerApi
-public expect class MediaPickerEngine(context: PlatformContext) {
+internal expect class MediaPickerEngine(context: InternalPlatformContext) {
 
-    public fun attach()
+    fun attach()
 
-    public fun detach()
+    fun detach()
 
-    public suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile>
+    suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile>
 
-    public suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>>
+    suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>>
 
-    public suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile>
+    suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile>
 
-    public suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile>
+    suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile>
 
-    public suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile>
+    suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile>
 
-    public suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile>
+    suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile>
 }

@@ -12,14 +12,12 @@ package io.github.aashutosh.mediapicker.internal
 import io.github.aashutosh.mediapicker.CameraCaptureConfig
 import io.github.aashutosh.mediapicker.FilePickerConfig
 import io.github.aashutosh.mediapicker.ImagePickerConfig
-import io.github.aashutosh.mediapicker.InternalMediaPickerApi
-import io.github.aashutosh.mediapicker.IosPlatformContext
 import io.github.aashutosh.mediapicker.MediaFile
 import io.github.aashutosh.mediapicker.MediaPickerResult
 import io.github.aashutosh.mediapicker.MultiImagePickerConfig
-import io.github.aashutosh.mediapicker.PlatformContext
 import io.github.aashutosh.mediapicker.VideoCaptureConfig
 import io.github.aashutosh.mediapicker.VideoPickerConfig
+import io.github.aashutosh.mediapicker.internal.image.postProcessImage
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.Foundation.NSFileManager
@@ -31,6 +29,8 @@ import platform.PhotosUI.PHPickerConfiguration
 import platform.PhotosUI.PHPickerFilter
 import platform.PhotosUI.PHPickerViewController
 import platform.UIKit.UIDocumentPickerViewController
+import platform.UIKit.UIImage
+import platform.UIKit.UIImageJPEGRepresentation
 import platform.UIKit.UIImagePickerController
 import platform.UIKit.UIImagePickerControllerCameraDevice
 import platform.UIKit.UIImagePickerControllerSourceType
@@ -41,42 +41,41 @@ import platform.UniformTypeIdentifiers.UTTypeItem
 import platform.UniformTypeIdentifiers.UTTypeMovie
 import kotlin.coroutines.resume
 
-@OptIn(InternalMediaPickerApi::class, ExperimentalForeignApi::class)
-public actual class MediaPickerEngine public actual constructor(context: PlatformContext) {
+@OptIn(ExperimentalForeignApi::class)
+internal actual class MediaPickerEngine actual constructor(context: InternalPlatformContext) {
 
-    private val iosCtx = context as? IosPlatformContext
-        ?: error("iOS target requires IosPlatformContext, got ${context::class.simpleName}")
+    private val iosCtx = context as IosPlatformContext
 
     // Strong refs while a picker is in flight; nulled in finally / detach.
     private var phDelegate: PhPickerDelegate? = null
     private var docDelegate: DocumentPickerDelegate? = null
     private var camDelegate: CameraDelegate? = null
 
-    public actual fun attach() {
+    actual fun attach() {
         // Nothing to do — UI hooks are per-call.
     }
 
-    public actual fun detach() {
+    actual fun detach() {
         phDelegate = null
         docDelegate = null
         camDelegate = null
     }
 
-    public actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> =
-        pickFromPhPicker(PHPickerFilter.imagesFilter(), maxSelection = 1)?.firstOrNull()
-            ?.let { MediaPickerResult.Success(it) }
-            ?: MediaPickerResult.Cancelled
-
-    public actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
-        val files = pickFromPhPicker(PHPickerFilter.imagesFilter(), maxSelection = config.maxItems)
-        return if (files.isNullOrEmpty()) {
-            MediaPickerResult.Cancelled
-        } else {
-            MediaPickerResult.Success(files)
-        }
+    actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> {
+        val file = pickFromPhPicker(PHPickerFilter.imagesFilter(), maxSelection = 1)?.firstOrNull()
+            ?: return MediaPickerResult.Cancelled
+        val processed = file.postProcessImage(config.compression, config.applyExifRotation)
+        return MediaPickerResult.Success(processed)
     }
 
-    public actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
+        val files = pickFromPhPicker(PHPickerFilter.imagesFilter(), maxSelection = config.maxItems)
+        if (files.isNullOrEmpty()) return MediaPickerResult.Cancelled
+        val processed = files.map { it.postProcessImage(config.compression, config.applyExifRotation) }
+        return MediaPickerResult.Success(processed)
+    }
+
+    actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
         val files = pickFromPhPicker(PHPickerFilter.videosFilter(), maxSelection = 1)
         val file = files?.firstOrNull() ?: return MediaPickerResult.Cancelled
         if (config.maxSizeBytes != null && file.sizeBytes > config.maxSizeBytes) {
@@ -85,9 +84,10 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(file)
     }
 
-    public actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
         val types: List<UTType> = config.mimeTypes
-            .mapNotNull { UTType.typeWithMIMEType(it) }
+            .flatMap { resolveUtTypes(it) }
+            .distinct()
             .ifEmpty { listOf(UTTypeItem) }
 
         val urls = suspendCancellableCoroutine<List<NSURL>?> { cont ->
@@ -117,13 +117,50 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
 
         if (urls.isEmpty()) return MediaPickerResult.Cancelled
         val first = urls.first()
-        return MediaPickerResult.Success(toMediaFile(first, mimeOverride = null))
+
+        // UIDocumentPickerViewController returns security-scoped URLs that are only readable
+        // while inside `start/stopAccessingSecurityScopedResource`. Copy the file into our
+        // app's temp directory immediately so the resulting MediaFile can be read at leisure
+        // without scope management leaking into the consumer.
+        val accessing = first.startAccessingSecurityScopedResource()
+        val copied = try {
+            copyToSandbox(first)
+        } finally {
+            if (accessing) first.stopAccessingSecurityScopedResource()
+        }
+        val displayName = first.lastPathComponent ?: copied.lastPathComponent ?: "file"
+        val mime = mimeForExtension(copied.pathExtension?.lowercase().orEmpty())
+        return MediaPickerResult.Success(toMediaFile(copied, mime, displayName = displayName))
     }
 
-    public actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> =
+    /**
+     * `UTType.typeWithMIMEType` is incomplete on iOS — vendor MIME types (openxmlformats,
+     * vnd.ms-excel, csv aliases) often return `nil` even when the format is universally
+     * supported. Layer a hand-rolled fallback over the system lookup so the consumer's
+     * `FilePickerConfig.mimeTypes` actually filters the picker the way they expect.
+     */
+    private fun resolveUtTypes(mime: String): List<UTType> {
+        val systemMatch = UTType.typeWithMIMEType(mime)
+        val byIdentifier = when (mime) {
+            "application/pdf" -> listOf("com.adobe.pdf")
+            "application/vnd.ms-excel" -> listOf("com.microsoft.excel.xls")
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
+                listOf("org.openxmlformats.spreadsheetml.sheet")
+            "application/msword" -> listOf("com.microsoft.word.doc")
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
+                listOf("org.openxmlformats.wordprocessingml.document")
+            "text/csv", "text/comma-separated-values" ->
+                listOf("public.comma-separated-values-text")
+            "application/zip" -> listOf("public.zip-archive")
+            else -> emptyList()
+        }.mapNotNull { UTType.typeWithIdentifier(it) }
+        return listOfNotNull(systemMatch) + byIdentifier
+    }
+
+    actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> =
         captureFromCamera(isImage = true, frontCamera = config.preferFrontCamera, saveToGallery = config.saveToGallery)
 
-    public actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> =
+    actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> =
         captureFromCamera(isImage = false, frontCamera = false, saveToGallery = config.saveToGallery)
 
     // -- internals --------------------------------------------------------------------
@@ -157,9 +194,11 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
     }
 
     private suspend fun loadFile(provider: NSItemProvider): MediaFile? = suspendCancellableCoroutine { cont ->
+        val isVideo = provider.hasItemConformingToTypeIdentifier(UTTypeMovie.identifier)
+        val isImage = !isVideo && provider.hasItemConformingToTypeIdentifier(UTTypeImage.identifier)
         val typeId = when {
-            provider.hasItemConformingToTypeIdentifier(UTTypeMovie.identifier) -> UTTypeMovie.identifier
-            provider.hasItemConformingToTypeIdentifier(UTTypeImage.identifier) -> UTTypeImage.identifier
+            isVideo -> UTTypeMovie.identifier
+            isImage -> UTTypeImage.identifier
             else -> UTTypeItem.identifier
         }
         provider.loadFileRepresentationForTypeIdentifier(typeId) { url, error ->
@@ -171,9 +210,34 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
             // copy into our sandbox so [MediaFile] can read it later.
             val copied = copyToSandbox(url)
             val name = provider.suggestedName ?: copied.lastPathComponent ?: "media"
-            val mime = mimeForUti(typeId)
+            // `UTType.preferredMIMEType` is nil for the abstract `public.image` / `public.movie`
+            // identifiers, which would leave `IosMediaFile.mimeType == null` and cause
+            // post-processing to short-circuit. Derive MIME from the concrete file extension
+            // resolved by the OS, fall back to a category-appropriate default.
+            val ext = copied.pathExtension?.lowercase().orEmpty()
+            val mime = mimeForExtension(ext)
+                ?: mimeForUti(typeId)
+                ?: when {
+                    isImage -> "image/jpeg"
+                    isVideo -> "video/mp4"
+                    else -> null
+                }
             cont.resumeIfActive(toMediaFile(copied, mime, displayName = name))
         }
+    }
+
+    private fun mimeForExtension(ext: String): String? = when (ext) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "heic" -> "image/heic"
+        "heif" -> "image/heif"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "bmp" -> "image/bmp"
+        "mp4" -> "video/mp4"
+        "mov" -> "video/quicktime"
+        "m4v" -> "video/x-m4v"
+        else -> null
     }
 
     private suspend fun captureFromCamera(isImage: Boolean, frontCamera: Boolean, saveToGallery: Boolean): MediaPickerResult<MediaFile> {
@@ -209,12 +273,32 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
             }
         } ?: return MediaPickerResult.Cancelled
 
+        // UIImagePickerController(sourceType: .camera) returns:
+        //   - PHOTO: info[.originalImage] is a UIImage; .imageURL is typically nil.
+        //   - VIDEO: info[.mediaURL] is the NSURL to the temp recording.
+        // So we try URL paths first (videos / edge cases) then fall back to encoding the
+        // UIImage to a JPEG file in our temp dir.
         val mediaUrl = info["UIImagePickerControllerMediaURL"] as? NSURL
         val imageUrl = info["UIImagePickerControllerImageURL"] as? NSURL
-        val source = mediaUrl ?: imageUrl ?: return MediaPickerResult.Error(IllegalStateException("No URL in camera result"))
-        val copied = copyToSandbox(source)
+        val originalImage = info["UIImagePickerControllerOriginalImage"] as? UIImage
+
+        val source: NSURL = when {
+            mediaUrl != null -> copyToSandbox(mediaUrl)
+            imageUrl != null -> copyToSandbox(imageUrl)
+            isImage && originalImage != null ->
+                writeImageToTempFile(originalImage)
+                    ?: return MediaPickerResult.Error(IllegalStateException("Failed to encode captured image"))
+            else -> return MediaPickerResult.Error(IllegalStateException("No URL or image in camera result"))
+        }
         val mime = if (isImage) "image/jpeg" else "video/mp4"
-        return MediaPickerResult.Success(toMediaFile(copied, mime, copied.lastPathComponent ?: "capture"))
+        return MediaPickerResult.Success(toMediaFile(source, mime, source.lastPathComponent ?: "capture"))
+    }
+
+    private fun writeImageToTempFile(image: UIImage): NSURL? {
+        val data = UIImageJPEGRepresentation(image, JPEG_QUALITY) ?: return null
+        val path = "${NSTemporaryDirectory()}${NSUUID().UUIDString}.jpg"
+        val ok = NSFileManager.defaultManager.createFileAtPath(path, contents = data, attributes = null)
+        return if (ok) NSURL.fileURLWithPath(path) else null
     }
 
     private fun copyToSandbox(src: NSURL): NSURL {
@@ -235,6 +319,10 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
     private fun mimeForUti(identifier: String): String? {
         val type = UTType.typeWithIdentifier(identifier) ?: return null
         return type.preferredMIMEType
+    }
+
+    private companion object {
+        const val JPEG_QUALITY = 0.9
     }
 }
 

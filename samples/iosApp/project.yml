@@ -34,6 +34,27 @@ targets:
       - path: iosApp
     info:
       path: iosApp/Info.plist
+      properties:
+        CFBundleDisplayName: Media Picker
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "1"
+        # Required by Compose Multiplatform 1.7+ for adequate frame-pacing on
+        # high-refresh-rate iPhones. The runtime hard-asserts on this at first composition.
+        CADisableMinimumFrameDurationOnPhone: true
+        LSRequiresIPhoneOS: true
+        NSCameraUsageDescription: Demonstrates capturing photos and videos via the system camera app.
+        NSPhotoLibraryAddUsageDescription: Demonstrates saving captured media to the photo library.
+        NSPhotoLibraryUsageDescription: Demonstrates picking media from the photo library.
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.aashutosh.mediapicker.sample
@@ -49,6 +70,8 @@ targets:
         outputFiles:
           - $(SRCROOT)/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)/ComposeApp.framework/ComposeApp
     dependencies:
+      # Static framework — link only, do not embed. The Kotlin code is baked into the
+      # app binary at build time, so the .app bundle has no Frameworks/ entry to validate.
       - framework: build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)/ComposeApp.framework
-        embed: true
-        codeSign: true
+        embed: false
+        codeSign: false

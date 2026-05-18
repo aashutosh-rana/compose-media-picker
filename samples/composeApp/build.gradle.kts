@@ -27,6 +27,9 @@ kotlin {
     listOf(iosX64(), iosArm64(), iosSimulatorArm64()).forEach { target ->
         target.binaries.framework {
             baseName = "ComposeApp"
+            // Static — linked into the app binary at build time. Avoids embedded-framework
+            // validation (no Info.plist required in the .framework) and matches the
+            // canonical JetBrains KMP wizard layout.
             isStatic = true
         }
     }

@@ -16,7 +16,7 @@ permission to declare.
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("io.github.aashutosh-rana:compose-media-picker:0.1.0")
+    implementation("io.github.aashutosh-rana:compose-media-picker:0.2.0")
 }
 ```
 
@@ -28,7 +28,6 @@ Repo: <https://github.com/aashutosh-rana/compose-media-picker>.
 class MyActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        initializeMediaPicker(AndroidPlatformContext(this))   // once
         setContent {
             val picker = rememberMediaPicker()
             val scope = rememberCoroutineScope()
@@ -45,22 +44,20 @@ class MyActivity : ComponentActivity() {
 }
 ```
 
+That's it — no initialization call, no platform-specific imports beyond the call site.
+`rememberMediaPicker()` auto-discovers the host: `ComponentActivity` on Android,
+foreground `UIViewController` on iOS, the active Compose `Window` on Desktop, the browser
+on Web. iOS / Desktop / Web call sites are identical to the snippet above.
+
 The library declares its own `FileProvider` under `${applicationId}.mediakit.fileprovider`
 via manifest merging — you don't need to add anything to your `AndroidManifest.xml`.
 You also don't need the `CAMERA` permission, because the system camera app owns it.
 
-iOS, Desktop, and Web have one-line initialisation in the same shape:
+### Upgrading from 0.1.x
 
-```kotlin
-// iOS — pass the root UIViewController
-initializeMediaPicker(IosPlatformContext(rootViewController))
-
-// Desktop — pass the parent Frame (optional)
-initializeMediaPicker(DesktopPlatformContext(parent = window))
-
-// Web — no handle required
-initializeMediaPicker(WebPlatformContext())
-```
+Delete any `initializeMediaPicker(...)` calls and their `*PlatformContext` imports.
+That's the entire change — see [CHANGELOG.md](CHANGELOG.md#020---2026-05-15) for the
+full migration snippet.
 
 ## Result model
 

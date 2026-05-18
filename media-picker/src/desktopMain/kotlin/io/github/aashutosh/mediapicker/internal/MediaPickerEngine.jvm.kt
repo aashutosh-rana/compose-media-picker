@@ -10,47 +10,43 @@
 package io.github.aashutosh.mediapicker.internal
 
 import io.github.aashutosh.mediapicker.CameraCaptureConfig
-import io.github.aashutosh.mediapicker.DesktopPlatformContext
 import io.github.aashutosh.mediapicker.FilePickerConfig
 import io.github.aashutosh.mediapicker.ImagePickerConfig
-import io.github.aashutosh.mediapicker.InternalMediaPickerApi
 import io.github.aashutosh.mediapicker.MediaFile
 import io.github.aashutosh.mediapicker.MediaPickerResult
 import io.github.aashutosh.mediapicker.MultiImagePickerConfig
-import io.github.aashutosh.mediapicker.PlatformContext
 import io.github.aashutosh.mediapicker.VideoCaptureConfig
 import io.github.aashutosh.mediapicker.VideoPickerConfig
+import io.github.aashutosh.mediapicker.internal.image.postProcessImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 
-@OptIn(InternalMediaPickerApi::class)
-public actual class MediaPickerEngine public actual constructor(context: PlatformContext) {
+internal actual class MediaPickerEngine actual constructor(context: InternalPlatformContext) {
 
-    private val desktopCtx = context as? DesktopPlatformContext
-        ?: error("Desktop target requires DesktopPlatformContext, got ${context::class.simpleName}")
+    private val desktopCtx = context as DesktopPlatformContext
 
-    public actual fun attach() {}
-    public actual fun detach() {}
+    actual fun attach() {}
+    actual fun detach() {}
 
-    public actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> =
-        pickWithDialog(IMAGE_EXTENSIONS, multi = false)?.firstOrNull()
-            ?.let { MediaPickerResult.Success(toMediaFile(it)) }
-            ?: MediaPickerResult.Cancelled
-
-    public actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
-        val files = pickWithDialog(IMAGE_EXTENSIONS, multi = true) ?: return MediaPickerResult.Cancelled
-        val capped = files.take(config.maxItems).map { toMediaFile(it) }
-        return if (capped.isEmpty()) {
-            MediaPickerResult.Cancelled
-        } else {
-            MediaPickerResult.Success(capped)
-        }
+    actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> {
+        val file = pickWithDialog(IMAGE_EXTENSIONS, multi = false)?.firstOrNull()
+            ?: return MediaPickerResult.Cancelled
+        val processed = toMediaFile(file).postProcessImage(config.compression, config.applyExifRotation)
+        return MediaPickerResult.Success(processed)
     }
 
-    public actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
+        val files = pickWithDialog(IMAGE_EXTENSIONS, multi = true) ?: return MediaPickerResult.Cancelled
+        val capped = files.take(config.maxItems)
+        if (capped.isEmpty()) return MediaPickerResult.Cancelled
+        val processed = capped.map { toMediaFile(it).postProcessImage(config.compression, config.applyExifRotation) }
+        return MediaPickerResult.Success(processed)
+    }
+
+    actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
         val file = pickWithDialog(VIDEO_EXTENSIONS, multi = false)?.firstOrNull()
             ?: return MediaPickerResult.Cancelled
         if (config.maxSizeBytes != null && file.length() > config.maxSizeBytes) {
@@ -59,7 +55,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(toMediaFile(file))
     }
 
-    public actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
         val exts = config.mimeTypes.flatMap { mimeToExtensions(it) }.distinct()
         val files = pickWithDialog(exts, config.allowMultiple) ?: return MediaPickerResult.Cancelled
         return if (files.isEmpty()) {
@@ -75,7 +71,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
      * webcam is present or the driver fails to open it (e.g. another process is holding
      * the device).
      */
-    public actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> {
         val file = runCatching { captureStillFromDesktopWebcam() }.getOrNull()
             ?: return MediaPickerResult.Unsupported
         return MediaPickerResult.Success(toMediaFile(file))
@@ -86,7 +82,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
      * Record / Stop / Cancel controls. Returns [MediaPickerResult.Unsupported] when no
      * camera is available or the JCodec encoder fails to initialize.
      */
-    public actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> {
         val file = runCatching { captureVideoFromDesktopWebcam() }.getOrNull()
             ?: return MediaPickerResult.Unsupported
         return MediaPickerResult.Success(toMediaFile(file))

@@ -1,9 +1,3 @@
-public final class io/github/aashutosh/mediapicker/AndroidPlatformContext : io/github/aashutosh/mediapicker/PlatformContext {
-	public static final field $stable I
-	public fun <init> (Landroidx/activity/ComponentActivity;)V
-	public final fun getActivity ()Landroidx/activity/ComponentActivity;
-}
-
 public final class io/github/aashutosh/mediapicker/CameraCaptureConfig {
 	public static final field $stable I
 	public fun <init> ()V
@@ -204,13 +198,6 @@ public final class io/github/aashutosh/mediapicker/MultiImagePickerConfig {
 public final class io/github/aashutosh/mediapicker/MultiImagePickerConfig$Companion {
 }
 
-public abstract interface class io/github/aashutosh/mediapicker/PlatformContext {
-}
-
-public final class io/github/aashutosh/mediapicker/PlatformContextKt {
-	public static final fun initializeMediaPicker (Lio/github/aashutosh/mediapicker/PlatformContext;)V
-}
-
 public final class io/github/aashutosh/mediapicker/Progress {
 	public static final field $stable I
 	public fun <init> (JJ)V
@@ -263,19 +250,6 @@ public final class io/github/aashutosh/mediapicker/VideoQuality : java/lang/Enum
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lio/github/aashutosh/mediapicker/VideoQuality;
 	public static fun values ()[Lio/github/aashutosh/mediapicker/VideoQuality;
-}
-
-public final class io/github/aashutosh/mediapicker/internal/MediaPickerEngine {
-	public static final field $stable I
-	public fun <init> (Lio/github/aashutosh/mediapicker/PlatformContext;)V
-	public final fun attach ()V
-	public final fun captureImage (Lio/github/aashutosh/mediapicker/CameraCaptureConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun captureVideo (Lio/github/aashutosh/mediapicker/VideoCaptureConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun detach ()V
-	public final fun pickFile (Lio/github/aashutosh/mediapicker/FilePickerConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun pickImage (Lio/github/aashutosh/mediapicker/ImagePickerConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun pickImages (Lio/github/aashutosh/mediapicker/MultiImagePickerConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun pickVideo (Lio/github/aashutosh/mediapicker/VideoPickerConfig;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/aashutosh/mediapicker/internal/image/AndroidImageOpsKt {

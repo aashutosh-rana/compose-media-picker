@@ -7,8 +7,6 @@
  *
  *     https://www.apache.org/licenses/LICENSE-2.0
  */
-@file:OptIn(InternalMediaPickerApi::class)
-
 package io.github.aashutosh.mediapicker
 
 import androidx.compose.runtime.Composable
@@ -16,18 +14,49 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import io.github.aashutosh.mediapicker.internal.DefaultMediaPicker
 import io.github.aashutosh.mediapicker.internal.MediaPickerEngine
-import io.github.aashutosh.mediapicker.internal.PlatformContextHolder
+import io.github.aashutosh.mediapicker.internal.discoverPlatformContext
 
 /**
- * Returns a [MediaPicker] scoped to the calling composable. The picker is detached and
- * all pending operations are cancelled when this composable leaves composition — no
+ * Returns a [MediaPicker] scoped to the calling composable. The picker auto-discovers
+ * the host (`ComponentActivity` on Android, foreground `UIViewController` on iOS, the
+ * Compose `Window` on Desktop, the browser on Web) so consumers don't have to register
+ * anything at app startup.
+ *
+ * All pending operations are cancelled when this composable leaves composition — no
  * leaks, no zombie callbacks.
  *
- * Call [initializeMediaPicker] once at app startup before any composable invokes this.
+ * Example:
+ * ```
+ * class MainActivity : ComponentActivity() {
+ *     override fun onCreate(savedInstanceState: Bundle?) {
+ *         super.onCreate(savedInstanceState)
+ *         setContent {
+ *             val picker = rememberMediaPicker()
+ *             val scope = rememberCoroutineScope()
+ *             Button(onClick = {
+ *                 scope.launch {
+ *                     when (val r = picker.captureImage()) {
+ *                         is MediaPickerResult.Success -> handle(r.data)
+ *                         else -> Unit
+ *                     }
+ *                 }
+ *             }) { Text("Take photo") }
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * For tests, pass a fake `MediaPicker` directly to the composable instead of calling
+ * this function — there's no global to override.
  */
 @Composable
 public fun rememberMediaPicker(): MediaPicker {
-    val context = PlatformContextHolder.require()
+    val context = discoverPlatformContext()
+        ?: error(
+            "rememberMediaPicker() requires a Compose host backed by a ComponentActivity " +
+                "(Android), a foreground UIViewController (iOS), or a Compose Window (Desktop). " +
+                "See https://github.com/aashutosh-rana/compose-media-picker#quickstart.",
+        )
     val engine = remember(context) { MediaPickerEngine(context) }
     val picker = remember(engine) { DefaultMediaPicker(engine) }
 

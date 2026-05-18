@@ -12,14 +12,12 @@ package io.github.aashutosh.mediapicker.internal
 import io.github.aashutosh.mediapicker.CameraCaptureConfig
 import io.github.aashutosh.mediapicker.FilePickerConfig
 import io.github.aashutosh.mediapicker.ImagePickerConfig
-import io.github.aashutosh.mediapicker.InternalMediaPickerApi
 import io.github.aashutosh.mediapicker.MediaFile
 import io.github.aashutosh.mediapicker.MediaPickerResult
 import io.github.aashutosh.mediapicker.MultiImagePickerConfig
-import io.github.aashutosh.mediapicker.PlatformContext
 import io.github.aashutosh.mediapicker.VideoCaptureConfig
 import io.github.aashutosh.mediapicker.VideoPickerConfig
-import io.github.aashutosh.mediapicker.WebPlatformContext
+import io.github.aashutosh.mediapicker.internal.image.postProcessImage
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.await
@@ -30,31 +28,28 @@ import org.w3c.files.File
 import org.w3c.files.FileList
 import kotlin.coroutines.resume
 
-@OptIn(InternalMediaPickerApi::class)
-public actual class MediaPickerEngine public actual constructor(context: PlatformContext) {
+internal actual class MediaPickerEngine actual constructor(@Suppress("UNUSED_PARAMETER") context: InternalPlatformContext) {
 
-    init {
-        require(context is WebPlatformContext) {
-            "Web target requires WebPlatformContext, got ${context::class.simpleName}"
-        }
+    actual fun attach() {}
+    actual fun detach() {}
+
+    actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> {
+        val file = showInput(accept = "image/*", multiple = false, capture = null)?.firstOrNull()
+            ?: return MediaPickerResult.Cancelled
+        val processed = WebMediaFile(file).postProcessImage(config.compression, config.applyExifRotation)
+        return MediaPickerResult.Success(processed)
     }
 
-    public actual fun attach() {}
-    public actual fun detach() {}
-
-    public actual suspend fun pickImage(config: ImagePickerConfig): MediaPickerResult<MediaFile> =
-        showInput(accept = "image/*", multiple = false, capture = null)?.firstOrNull()
-            ?.let { MediaPickerResult.Success(WebMediaFile(it)) }
-            ?: MediaPickerResult.Cancelled
-
-    public actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
+    actual suspend fun pickImages(config: MultiImagePickerConfig): MediaPickerResult<List<MediaFile>> {
         val files = showInput(accept = "image/*", multiple = true, capture = null)
             ?: return MediaPickerResult.Cancelled
-        val capped = files.take(config.maxItems).map(::WebMediaFile)
-        return if (capped.isEmpty()) MediaPickerResult.Cancelled else MediaPickerResult.Success(capped)
+        val capped = files.take(config.maxItems)
+        if (capped.isEmpty()) return MediaPickerResult.Cancelled
+        val processed = capped.map { WebMediaFile(it).postProcessImage(config.compression, config.applyExifRotation) }
+        return MediaPickerResult.Success(processed)
     }
 
-    public actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickVideo(config: VideoPickerConfig): MediaPickerResult<MediaFile> {
         val file = showInput(accept = "video/*", multiple = false, capture = null)?.firstOrNull()
             ?: return MediaPickerResult.Cancelled
         if (config.maxSizeBytes != null && file.size.toDouble().toLong() > config.maxSizeBytes) {
@@ -63,7 +58,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(WebMediaFile(file))
     }
 
-    public actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun pickFile(config: FilePickerConfig): MediaPickerResult<MediaFile> {
         val files = showInput(
             accept = config.mimeTypes.joinToString(","),
             multiple = config.allowMultiple,
@@ -73,7 +68,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(WebMediaFile(first))
     }
 
-    public actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun captureImage(config: CameraCaptureConfig): MediaPickerResult<MediaFile> {
         val facing = if (config.preferFrontCamera) "user" else "environment"
         if (isMobileBrowser()) {
             // Mobile: <input capture> hands the request to the OS camera app. Cheap, no permissions
@@ -93,7 +88,7 @@ public actual class MediaPickerEngine public actual constructor(context: Platfor
         return MediaPickerResult.Success(WebMediaFile(picked))
     }
 
-    public actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> {
+    actual suspend fun captureVideo(config: VideoCaptureConfig): MediaPickerResult<MediaFile> {
         if (isMobileBrowser()) {
             val files = showInput(accept = "video/*", multiple = false, capture = "environment")
                 ?: return MediaPickerResult.Cancelled

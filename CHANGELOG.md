@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-15
+
+### Changed (breaking)
+
+- `rememberMediaPicker()` now auto-discovers the host context — no setup call required.
+  Removed `initializeMediaPicker(PlatformContext)` and the `PlatformContext` family
+  (`AndroidPlatformContext`, `IosPlatformContext`, `DesktopPlatformContext`,
+  `WebPlatformContext`). Public API drops from 28 symbols to 22.
+
+  **Migration**: delete the `initializeMediaPicker(...)` line from your activity /
+  view controller / window onCreate / setup. That's the entire change. Imports of the
+  removed types become unresolved and need deletion too.
+
+  ```kotlin
+  // 0.1.x
+  override fun onCreate(savedInstanceState: Bundle?) {
+      super.onCreate(savedInstanceState)
+      initializeMediaPicker(AndroidPlatformContext(this))   // ← delete
+      setContent { App() }
+  }
+
+  // 0.2.x
+  override fun onCreate(savedInstanceState: Bundle?) {
+      super.onCreate(savedInstanceState)
+      setContent { App() }
+  }
+  ```
+
+  For tests, pass a fake `MediaPicker` directly to your composable instead of relying on
+  a global — the idiomatic Compose pattern.
+
 ## [0.1.0] - 2026-05-15
 
 ### Added
